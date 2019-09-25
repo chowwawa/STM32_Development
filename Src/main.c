@@ -76,6 +76,15 @@ static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 float ADC1_Measure_Poll(void);
+typedef enum Keystroke{
+	Reset=0,
+	SingleClick=1,
+	DoubleClick=2,
+	LongPress=3,
+}TypeofClick;
+uint16_t ButtonStatus=0;
+uint16_t ButIdle_Count=0;
+uint8_t IDLE_Flag=0;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -150,7 +159,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -162,11 +171,9 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	 // Vm = Vref*(ADC1_Measure_Poll()/255);
 	//  printf("The measured voltage =%f%s\n",Vm,"V ");
-		if(Timer6_Counter>=200){
-			Timer6_Counter=0;
-			HAL_GPIO_TogglePin(LED_A_GPIO_Port,LED_A_Pin);
-			HAL_TIM_Base_Stop_IT(&htim6);
-		}
+
+
+	  Button_Operation();
   }
   /* USER CODE END 3 */
 }
@@ -573,7 +580,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : Button_A_Pin */
   GPIO_InitStruct.Pin = Button_A_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(Button_A_GPIO_Port, &GPIO_InitStruct);
 
@@ -602,11 +609,58 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO){
 }
 HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 if(htim->Instance==TIM6){
-	if(HAL_GPIO_ReadPin(Button_A_GPIO_Port,Button_A_Pin)==0)
+	if(HAL_GPIO_ReadPin(Button_A_GPIO_Port,Button_A_Pin)==0){
 	Timer6_Counter++;
-	else
-	Timer6_Counter=0;
+	}
+	else{
+	ButIdle_Count++;
+	HAL_TIM_Base_Start_IT(&htim6);
+	}
+	if(ButIdle_Count>=25){
+		IDLE_Flag=1;
+		ButIdle_Count=0;
+	}
+
 }
+}
+void Button_Operation(void){
+	if(HAL_GPIO_ReadPin(Button_A_GPIO_Port,Button_A_Pin)==1){
+		if(Timer6_Counter<=100&Timer6_Counter>=1){
+		ButtonStatus++;
+		HAL_TIM_Base_Start_IT(&htim6);
+		if(ButtonStatus>3)
+		ButtonStatus=Reset;
+		}
+		else if(Timer6_Counter>=200){
+		ButtonStatus=LongPress;
+		}else{
+		Timer6_Counter=0;
+		}
+	}
+	if(IDLE_Flag==1){
+		switch (ButtonStatus){
+		case Reset:
+			ButIdle_Count=0;
+			IDLE_Flag=0;
+			break;
+		case SingleClick:
+			ButtonStatus=Reset;
+			HAL_GPIO_TogglePin(LED_A_GPIO_Port,LED_A_Pin);
+			Timer6_Counter=0;
+			IDLE_Flag=0;
+			HAL_TIM_Base_Stop_IT(&htim6);
+			break;
+		case DoubleClick:
+			break;
+		case LongPress:
+			ButtonStatus=Reset;
+			HAL_GPIO_TogglePin(LED_A_GPIO_Port,LED_A_Pin);
+			Timer6_Counter=0;
+			IDLE_Flag=0;
+			HAL_TIM_Base_Stop_IT(&htim6);
+			break;
+		}
+	}
 }
 /* USER CODE END 4 */
 
