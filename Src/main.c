@@ -159,7 +159,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start_IT(&htim6);
+  //HAL_TIM_Base_Start_IT(&htim6); //Start 10ms timer
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -169,11 +169,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	 // Vm = Vref*(ADC1_Measure_Poll()/255);
-	//  printf("The measured voltage =%f%s\n",Vm,"V ");
-
-
-	  Button_Operation();
+	  Vm = Vref*(ADC1_Measure_Poll()/255);
+	  printf("The measured voltage =%f%s\n",Vm,"V ");
   }
   /* USER CODE END 3 */
 }
@@ -613,53 +610,46 @@ if(htim->Instance==TIM6){
 	Timer6_Counter++;
 	}
 	else{
-	ButIdle_Count++;
-	HAL_TIM_Base_Start_IT(&htim6);
+	if(Timer6_Counter<=100&Timer6_Counter>=1){
+	ButtonStatus++;
+	if(ButtonStatus>=3)
+	ButtonStatus=Reset;
 	}
-	if(ButIdle_Count>=25){
+	else if(Timer6_Counter>=200){
+	ButtonStatus=LongPress;
+	}
+	Timer6_Counter=0;
+	ButIdle_Count++;
+	}
+	if(ButIdle_Count>=50){
 		IDLE_Flag=1;
 		ButIdle_Count=0;
 	}
-
+	 Button_Operation_Event();
 }
 }
-void Button_Operation(void){
-	if(HAL_GPIO_ReadPin(Button_A_GPIO_Port,Button_A_Pin)==1){
-		if(Timer6_Counter<=100&Timer6_Counter>=1){
-		ButtonStatus++;
-		HAL_TIM_Base_Start_IT(&htim6);
-		if(ButtonStatus>3)
-		ButtonStatus=Reset;
-		}
-		else if(Timer6_Counter>=200){
-		ButtonStatus=LongPress;
-		}else{
-		Timer6_Counter=0;
-		}
-	}
+void Button_Operation_Event(void){
 	if(IDLE_Flag==1){
 		switch (ButtonStatus){
 		case Reset:
 			ButIdle_Count=0;
-			IDLE_Flag=0;
 			break;
 		case SingleClick:
-			ButtonStatus=Reset;
 			HAL_GPIO_TogglePin(LED_A_GPIO_Port,LED_A_Pin);
-			Timer6_Counter=0;
-			IDLE_Flag=0;
-			HAL_TIM_Base_Stop_IT(&htim6);
 			break;
 		case DoubleClick:
+			HAL_GPIO_TogglePin(LED_B_GPIO_Port,LED_B_Pin);
 			break;
 		case LongPress:
-			ButtonStatus=Reset;
-			HAL_GPIO_TogglePin(LED_A_GPIO_Port,LED_A_Pin);
-			Timer6_Counter=0;
-			IDLE_Flag=0;
-			HAL_TIM_Base_Stop_IT(&htim6);
+			HAL_GPIO_TogglePin(LED_C_GPIO_Port,LED_C_Pin);
+			break;
+		default:
 			break;
 		}
+		ButtonStatus=Reset;
+		Timer6_Counter=0;
+		IDLE_Flag=0;
+		HAL_TIM_Base_Stop_IT(&htim6);
 	}
 }
 /* USER CODE END 4 */
