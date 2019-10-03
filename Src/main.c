@@ -20,6 +20,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -35,6 +36,7 @@
 /* USER CODE BEGIN PD */
 uint8_t ADC1_Value;
 uint8_t ADC2_Value;
+uint8_t Buttons_flag=0;
 float Vref=3.0;
 float Vm;
 uint16_t Timer6_Counter;
@@ -60,8 +62,9 @@ UART_HandleTypeDef huart1;
 
 PCD_HandleTypeDef hpcd_USB_FS;
 
+osThreadId defaultTaskHandle;
+osThreadId myTask02Handle;
 /* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,6 +77,9 @@ static void MX_USB_PCD_Init(void);
 static void MX_ADC_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
+void StartDefaultTask(void const * argument);
+void StartTask02(void const * argument);
+
 /* USER CODE BEGIN PFP */
 float ADC1_Measure_Poll(void);
 typedef enum Keystroke{
@@ -81,6 +87,7 @@ typedef enum Keystroke{
 	SingleClick=1,
 	DoubleClick=2,
 	LongPress=3,
+	SimuClick=0xFF
 }TypeofClick;
 uint16_t ButtonStatus=0;
 uint16_t ButIdle_Count=0;
@@ -162,6 +169,40 @@ int main(void)
   //HAL_TIM_Base_Start_IT(&htim6); //Start 10ms timer
   /* USER CODE END 2 */
 
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* definition and creation of defaultTask */
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityIdle, 0, 1800);
+  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
+  /* definition and creation of myTask02 */
+  osThreadDef(myTask02, StartTask02, osPriorityIdle, 0, 512);
+  myTask02Handle = osThreadCreate(osThread(myTask02), NULL);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* Start scheduler */
+  osKernelStart();
+  
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -169,8 +210,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  Vm = Vref*(ADC1_Measure_Poll()/255);
-	  printf("The measured voltage =%f%s\n",Vm,"V ");
   }
   /* USER CODE END 3 */
 }
@@ -569,20 +608,20 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_A_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Button_C_Pin Button_B_Pin */
-  GPIO_InitStruct.Pin = Button_C_Pin|Button_B_Pin;
+  /*Configure GPIO pin : Button_C_Pin */
+  GPIO_InitStruct.Pin = Button_C_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(Button_C_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Button_B_Pin Button_A_Pin */
+  GPIO_InitStruct.Pin = Button_B_Pin|Button_A_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Button_A_Pin */
-  GPIO_InitStruct.Pin = Button_A_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(Button_A_GPIO_Port, &GPIO_InitStruct);
-
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 3, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
 }
@@ -602,18 +641,24 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO){
 	if(GPIO==Button_A_Pin){
 		Timer6_Counter=0;
 		HAL_TIM_Base_Start_IT(&htim6);
+		Buttons_flag+=0xF0;
+	}
+	if(GPIO==Button_B_Pin){
+		Timer6_Counter=0;
+		HAL_TIM_Base_Start_IT(&htim6);
+		Buttons_flag+=0x0F;
 	}
 }
 HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 if(htim->Instance==TIM6){
-	if(HAL_GPIO_ReadPin(Button_A_GPIO_Port,Button_A_Pin)==0){
+	if((HAL_GPIO_ReadPin(Button_A_GPIO_Port,Button_A_Pin)==0)|(HAL_GPIO_ReadPin(Button_B_GPIO_Port,Button_B_Pin)==0)){
 	Timer6_Counter++;
 	}
 	else{
 	if(Timer6_Counter<=100&Timer6_Counter>=1){
 	ButtonStatus++;
-	if(ButtonStatus>=3)
-	ButtonStatus=Reset;
+	//if(ButtonStatus>=3)
+	//ButtonStatus=Reset;
 	}
 	else if(Timer6_Counter>=200){
 	ButtonStatus=LongPress;
@@ -621,11 +666,18 @@ if(htim->Instance==TIM6){
 	Timer6_Counter=0;
 	ButIdle_Count++;
 	}
-	if(ButIdle_Count>=50){
+	if(ButIdle_Count>=25){
 		IDLE_Flag=1;
 		ButIdle_Count=0;
+		if(Buttons_flag==0xFF){
+		ButtonStatus=SimuClick;
+		}
+		Buttons_flag=0;
 	}
-	 Button_Operation_Event();
+	// Button_Operation_Event();
+	BaseType_t ButtonCheck;
+	ButtonCheck = xTaskResumeFromISR(myTask02Handle);
+	portYIELD_FROM_ISR(ButtonCheck);
 }
 }
 void Button_Operation_Event(void){
@@ -643,6 +695,11 @@ void Button_Operation_Event(void){
 		case LongPress:
 			HAL_GPIO_TogglePin(LED_C_GPIO_Port,LED_C_Pin);
 			break;
+		case SimuClick:
+			HAL_GPIO_WritePin(LED_A_GPIO_Port,LED_A_Pin,GPIO_PIN_SET);
+			HAL_GPIO_WritePin(LED_B_GPIO_Port,LED_B_Pin,GPIO_PIN_SET);
+			HAL_GPIO_WritePin(LED_C_GPIO_Port,LED_C_Pin,GPIO_PIN_SET);
+			break;
 		default:
 			break;
 		}
@@ -653,6 +710,54 @@ void Button_Operation_Event(void){
 	}
 }
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used 
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void const * argument)
+{
+    
+    
+    
+    
+
+  /* USER CODE BEGIN 5 */
+  TickType_t xLastWakeTime;
+  const TickType_t xDelay500ms = pdMS_TO_TICKS( 500 );
+  xLastWakeTime = xTaskGetTickCount();
+  /* Infinite loop */
+  for(;;)
+  {
+    Vm = Vref*(ADC1_Measure_Poll()/255);
+    //printf("The measured voltage = %f%s\n",Vm," V");
+	HAL_GPIO_TogglePin(LED_C_GPIO_Port,LED_C_Pin);
+	vTaskDelayUntil( &xLastWakeTime, xDelay500ms );
+  }
+  /* USER CODE END 5 */ 
+}
+
+/* USER CODE BEGIN Header_StartTask02 */
+/**
+* @brief Function implementing the myTask02 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask02 */
+void StartTask02(void const * argument)
+{
+  /* USER CODE BEGIN StartTask02 */
+  /* Infinite loop */
+  for(;;)
+  {
+	vTaskSuspend(NULL);
+	Button_Operation_Event();
+  }
+  /* USER CODE END StartTask02 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
