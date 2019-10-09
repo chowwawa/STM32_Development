@@ -54,6 +54,7 @@ I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi2;
 
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim6;
 
 TSC_HandleTypeDef htsc;
@@ -64,6 +65,8 @@ PCD_HandleTypeDef hpcd_USB_FS;
 
 osThreadId defaultTaskHandle;
 osThreadId myTask02Handle;
+osThreadId continuousTask0Handle;
+osMessageQId ledShowHandle;
 /* USER CODE BEGIN PV */
 /* USER CODE END PV */
 
@@ -77,8 +80,10 @@ static void MX_USB_PCD_Init(void);
 static void MX_ADC_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_TIM1_Init(void);
 void StartDefaultTask(void const * argument);
 void StartTask02(void const * argument);
+void ContinuousTask01(void const * argument);
 
 /* USER CODE BEGIN PFP */
 float ADC1_Measure_Poll(void);
@@ -87,6 +92,7 @@ typedef enum Keystroke{
 	SingleClick=1,
 	DoubleClick=2,
 	LongPress=3,
+	OptionKey = 0xAA,
 	SimuClick=0xFF
 }TypeofClick;
 uint16_t ButtonStatus=0;
@@ -165,6 +171,7 @@ int main(void)
   MX_ADC_Init();
   MX_USART1_UART_Init();
   MX_TIM6_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   //HAL_TIM_Base_Start_IT(&htim6); //Start 10ms timer
   /* USER CODE END 2 */
@@ -181,6 +188,11 @@ int main(void)
   /* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
+  /* Create the queue(s) */
+  /* definition and creation of ledShow */
+  osMessageQDef(ledShow, 1, uint8_t);
+  ledShowHandle = osMessageCreate(osMessageQ(ledShow), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -191,8 +203,12 @@ int main(void)
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* definition and creation of myTask02 */
-  osThreadDef(myTask02, StartTask02, osPriorityIdle, 0, 512);
+  osThreadDef(myTask02, StartTask02, osPriorityIdle, 0, 128);
   myTask02Handle = osThreadCreate(osThread(myTask02), NULL);
+
+  /* definition and creation of continuousTask0 */
+  osThreadDef(continuousTask0, ContinuousTask01, osPriorityIdle, 0, 128);
+  continuousTask0Handle = osThreadCreate(osThread(continuousTask0), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -398,6 +414,81 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
 
 }
 
@@ -638,16 +729,15 @@ float ADC1_Measure_Poll(void){
 	return ADC1_Value;
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO){
-	if(GPIO==Button_A_Pin){
-		Timer6_Counter=0;
-		HAL_TIM_Base_Start_IT(&htim6);
+	if(GPIO==Button_A_Pin)
 		Buttons_flag+=0xF0;
-	}
-	if(GPIO==Button_B_Pin){
-		Timer6_Counter=0;
-		HAL_TIM_Base_Start_IT(&htim6);
+	if(GPIO==Button_B_Pin)
 		Buttons_flag+=0x0F;
-	}
+	if(GPIO==Button_C_Pin)
+		Buttons_flag=0xAA;
+
+	Timer6_Counter=0;
+	HAL_TIM_Base_Start_IT(&htim6);
 }
 HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 if(htim->Instance==TIM6){
@@ -671,6 +761,9 @@ if(htim->Instance==TIM6){
 		ButIdle_Count=0;
 		if(Buttons_flag==0xFF){
 		ButtonStatus=SimuClick;
+		}
+		else if(Buttons_flag == 0xAA){
+	    ButtonStatus=OptionKey;
 		}
 		Buttons_flag=0;
 	}
@@ -696,10 +789,11 @@ void Button_Operation_Event(void){
 			HAL_GPIO_TogglePin(LED_C_GPIO_Port,LED_C_Pin);
 			break;
 		case SimuClick:
-			HAL_GPIO_WritePin(LED_A_GPIO_Port,LED_A_Pin,GPIO_PIN_SET);
-			HAL_GPIO_WritePin(LED_B_GPIO_Port,LED_B_Pin,GPIO_PIN_SET);
-			HAL_GPIO_WritePin(LED_C_GPIO_Port,LED_C_Pin,GPIO_PIN_SET);
+			HAL_GPIO_TogglePin(LED_A_GPIO_Port,LED_A_Pin);
+			HAL_GPIO_TogglePin(LED_B_GPIO_Port,LED_B_Pin);
 			break;
+		case OptionKey:
+			xQueueSendToBack(ledShowHandle,&ButtonStatus,0);
 		default:
 			break;
 		}
@@ -720,22 +814,24 @@ void Button_Operation_Event(void){
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
-    
-    
-    
-    
-
   /* USER CODE BEGIN 5 */
+  uint8_t queueMessage;
+  const TickType_t tickTowait = pdMS_TO_TICKS(50);
   TickType_t xLastWakeTime;
-  const TickType_t xDelay500ms = pdMS_TO_TICKS( 500 );
+  uint16_t ledShow_buf = 1000;
+ //const TickType_t xDelay = pdMS_TO_TICKS( ledShow_buf );
   xLastWakeTime = xTaskGetTickCount();
+  HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_1);
   /* Infinite loop */
   for(;;)
   {
-    Vm = Vref*(ADC1_Measure_Poll()/255);
-    //printf("The measured voltage = %f%s\n",Vm," V");
+	if(xQueueReceive(ledShowHandle,&queueMessage,tickTowait)==pdPASS){
+		ledShow_buf -= 200;
+		if(ledShow_buf == 0)
+	    ledShow_buf = 1000;
+	}
 	HAL_GPIO_TogglePin(LED_C_GPIO_Port,LED_C_Pin);
-	vTaskDelayUntil( &xLastWakeTime, xDelay500ms );
+	vTaskDelayUntil( &xLastWakeTime,  pdMS_TO_TICKS( ledShow_buf ) );
   }
   /* USER CODE END 5 */ 
 }
@@ -757,6 +853,27 @@ void StartTask02(void const * argument)
 	Button_Operation_Event();
   }
   /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Header_ContinuousTask01 */
+/**
+* @brief Function implementing the continuousTask0 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_ContinuousTask01 */
+void ContinuousTask01(void const * argument)
+{
+  /* USER CODE BEGIN ContinuousTask01 */
+  /* Infinite loop */
+  for(;;)
+  {
+	Vm = Vref*(ADC1_Measure_Poll()/255);
+	TIM1->CCR1 = ((65535*Vm)/3.0);
+	//printf("The measured voltage = %f%s\n",Vm," V");
+    osDelay(1);
+  }
+  /* USER CODE END ContinuousTask01 */
 }
 
 /**
